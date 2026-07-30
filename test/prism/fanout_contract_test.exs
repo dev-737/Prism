@@ -35,6 +35,17 @@ defmodule Prism.FanoutContractTest do
     assert decoded.message_id == "message-1"
   end
 
+  test "accepts trusted Polarizer jobs without a Kafka key and derives one for retries" do
+    message = kafka_message(valid_payload())
+    message = %{message | metadata: Map.put(message.metadata, :key, "")}
+
+    assert {:ok, decoded} = FanoutBroadway.validate_job_contract(message)
+    assert decoded.action_id == @action_id
+
+    retry = FanoutBroadway.retry_payload(message.data, message.metadata)
+    assert retry["partition_key"] == @action_id
+  end
+
   test "rejects a spoofed or incomplete CloudEvents envelope" do
     message = kafka_message(valid_payload(), [{"ce_source", "/another-service"}])
 

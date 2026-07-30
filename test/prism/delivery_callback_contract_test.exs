@@ -37,6 +37,7 @@ defmodule Prism.DeliveryCallbackContractTest do
     previous_handoff_base = Application.get_env(:prism, :prism_handoff_retry_base_ms)
     previous_include_parent = Application.get_env(:prism, :callback_include_parent_message_id)
     previous_preflight = Application.get_env(:prism, :preflight_batching_enabled)
+    previous_max_retries = Application.get_env(:prism, :event_bus_max_retries)
 
     Application.put_env(
       :prism,
@@ -54,6 +55,7 @@ defmodule Prism.DeliveryCallbackContractTest do
       restore_env(:prism_handoff_retry_base_ms, previous_handoff_base)
       restore_env(:callback_include_parent_message_id, previous_include_parent)
       restore_env(:preflight_batching_enabled, previous_preflight)
+      restore_env(:event_bus_max_retries, previous_max_retries)
     end)
 
     :ok
@@ -153,6 +155,26 @@ defmodule Prism.DeliveryCallbackContractTest do
     end
   end
 
+  test "callback publication failure does not replay completed Discord deliveries" do
+    Application.put_env(:prism, :capture_transport_result, {:error, :broker_unavailable})
+
+    assert :ok =
+             Prism.FanoutBroadway.Batch.publish_completion_callbacks(
+               %{batch_id: "batch-complete"},
+               @action_id,
+               "message-1",
+               {:MESSAGE_STATE_ACTIVE, ""}
+             )
+
+    assert_receive {:published, "events.bus", _payload, _maxlen, _headers}
+
+    for _ <- 1..3 do
+      assert_receive {:published, "events.prism.delivery.v2", _payload, _maxlen, _headers}
+    end
+
+    refute_receive {:published, "prism.stream.jobs.retry", _payload, _maxlen, _headers}
+  end
+
   test "raw retry publication preserves the original Kafka contract and key" do
     headers = %{
       "ce_specversion" => "1.0",
@@ -211,6 +233,17 @@ defmodule Prism.DeliveryCallbackContractTest do
     assert String.to_integer(headers["prism-not-before-ms"]) >= before_ms + 1_000
   end
 
+  test "exhausted whole-batch retries are dead-lettered instead of looping forever" do
+    Application.put_env(:prism, :event_bus_max_retries, 3)
+    message = failed_job_message("3")
+
+    assert [^message] = Prism.FanoutBroadway.handle_failed([message], %{})
+
+    assert_receive {:published, "prism.stream.jobs.dlq", <<1, 2, 3>>, _maxlen, headers}
+    assert headers["prism-error-code"] == "retry_exhausted"
+    refute_receive {:published, "prism.stream.jobs.retry", _payload, _maxlen, _headers}
+  end
+
   test "a failed retry publish is retried before handle_failed permits acknowledgement" do
     {:ok, results} = Agent.start_link(fn -> [{:error, :broker_unavailable}, :ok] end)
 
@@ -232,17 +265,24 @@ defmodule Prism.DeliveryCallbackContractTest do
     assert Prism.FanoutBroadway.retry_delay_ms(metadata, 2_000) == 0
   end
 
-  defp failed_job_message do
+  defp failed_job_message(retry_attempt \\ nil) do
+    headers = [
+      {"ce_source", "/polarizer"},
+      {"ce_type", "fun.interchat.prism.job"}
+    ]
+
+    headers =
+      if retry_attempt,
+        do: [{"prism-retry-attempt", retry_attempt} | headers],
+        else: headers
+
     %Broadway.Message{
       data: <<1, 2, 3>>,
       acknowledger: {Broadway.NoopAcknowledger, nil, nil},
       metadata: %{
         topic: "prism.stream.jobs",
         key: "HUB:hub-1",
-        headers: [
-          {"ce_source", "/polarizer"},
-          {"ce_type", "fun.interchat.prism.job"}
-        ]
+        headers: headers
       },
       status: {:failed, {:processing_failed, "callback unavailable"}}
     }

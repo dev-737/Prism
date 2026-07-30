@@ -20,6 +20,8 @@ log_level =
     _ -> :info
   end
 
+stream_jobs = env!("PRISM_STREAM_JOBS", :string, "prism.stream.jobs")
+
 config :logger, level: log_level
 
 if config_env() != :test do
@@ -67,7 +69,7 @@ if config_env() != :test do
     finch_idle_timeout_ms: env!("PRISM_FINCH_IDLE_TIMEOUT_MS", :integer, 60000),
     finch_keepalive_ms: env!("PRISM_FINCH_KEEPALIVE_MS", :integer, 30000),
     discord_base_url: env!("PRISM_DISCORD_BASE_URL", :string, "https://discord.com"),
-    stream_jobs: env!("PRISM_STREAM_JOBS", :string, "prism.stream.jobs"),
+    stream_jobs: stream_jobs,
     redis_retry_stream: env!("REDIS_RETRY_STREAM", :string, "prism.stream.retries"),
     consumer_group: env!("PRISM_CONSUMER_GROUP", :string, "prism:cg:fanout"),
     delayed_zset_key: env!("PRISM_DELAYED_ZSET_KEY", :string, "prism:delayed"),
@@ -132,8 +134,8 @@ if config_env() != :test do
     delivery_topic: env!("PRISM_DELIVERY_TOPIC", :string, "events.prism.delivery.v2"),
     prism_job_source: env!("PRISM_JOB_SOURCE", :string, "/polarizer"),
     prism_job_event_type: env!("PRISM_JOB_EVENT_TYPE", :string, "fun.interchat.prism.job"),
-    prism_jobs_dlq_topic: env!("PRISM_JOBS_DLQ_TOPIC", :string, "prism.stream.jobs.dlq"),
-    prism_jobs_retry_topic: env!("PRISM_JOBS_RETRY_TOPIC", :string, "prism.stream.jobs.retry"),
+    prism_jobs_dlq_topic: env!("PRISM_JOBS_DLQ_TOPIC", :string, "#{stream_jobs}.dlq"),
+    prism_jobs_retry_topic: env!("PRISM_JOBS_RETRY_TOPIC", :string, "#{stream_jobs}.retry"),
     prism_handoff_retry_base_ms: env!("PRISM_HANDOFF_RETRY_BASE_MS", :integer, 100),
     # Congestion control (Cubic + 4xx safety budget)
     congestion_control_enabled: env!("PRISM_CONGESTION_CONTROL_ENABLED", :boolean, false),

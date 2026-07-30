@@ -367,28 +367,17 @@ defmodule Prism.FanoutBroadway.Batch do
           payload_map
         end
 
-      Helpers.publish_callback(payload_map)
+      delivery_state =
+        if ok_count > 0,
+          do: {:MESSAGE_STATE_ACTIVE, ""},
+          else: {:MESSAGE_STATE_DELIVERY_FAILED, "NO_TARGET_DELIVERED"}
 
-      delivery_result =
-        if ok_count > 0 do
-          Helpers.publish_delivery_callback(
-            polarizer_action_id,
-            parent_message_id,
-            :MESSAGE_STATE_ACTIVE
-          )
-        else
-          Helpers.publish_delivery_callback(
-            polarizer_action_id,
-            parent_message_id,
-            :MESSAGE_STATE_DELIVERY_FAILED,
-            "NO_TARGET_DELIVERED"
-          )
-        end
-
-      case delivery_result do
-        :ok -> :ok
-        {:error, reason} -> raise "authoritative delivery callback failed: #{inspect(reason)}"
-      end
+      publish_completion_callbacks(
+        payload_map,
+        polarizer_action_id,
+        parent_message_id,
+        delivery_state
+      )
 
       events_stream = Prism.EventBus.Config.events_stream()
       Logger.debug("Published callback to #{events_stream} for batch #{batch_id}#{parent_log}")
@@ -411,6 +400,33 @@ defmodule Prism.FanoutBroadway.Batch do
 
       Prism.AsyncBatchCounter.add_processed(length(targets))
     end
+  end
+
+  @doc false
+  def publish_completion_callbacks(payload_map, action_id, message_id, {state, failure_code}) do
+    case Helpers.publish_callback(payload_map) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to publish batch callback for #{payload_map.batch_id}: #{inspect(reason)}. " <>
+            "Discord deliveries will not be replayed."
+        )
+    end
+
+    case Helpers.publish_delivery_callback(action_id, message_id, state, failure_code) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "Authoritative delivery callback failed for batch #{payload_map.batch_id}: " <>
+            "#{inspect(reason)}. Discord deliveries will not be replayed."
+        )
+    end
+
+    :ok
   end
 
   @doc """

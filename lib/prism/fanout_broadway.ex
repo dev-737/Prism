@@ -120,9 +120,6 @@ defmodule Prism.FanoutBroadway do
         ] ->
           {:error, :unexpected_topic}
 
-        blank?(Map.get(metadata, :key)) ->
-          {:error, :missing_partition_key}
-
         blank?(Map.get(headers, "ce_id")) or blank?(Map.get(headers, "ce_time")) or
             Enum.any?(expected, fn {key, value} -> Map.get(headers, key) != value end) ->
           {:error, :invalid_cloud_event_headers}
@@ -340,7 +337,17 @@ defmodule Prism.FanoutBroadway do
           publish_invalid_job!(message, reason)
 
         {:failed, _reason} ->
-          publish_retry_job!(message, 1_000, :processing_failed)
+          attempts = message.metadata |> normalized_headers() |> retry_attempt()
+
+          if attempts >= Prism.EventBus.Config.max_retries() do
+            Logger.error(
+              "Prism job exhausted #{attempts} whole-batch retries; sending it to the DLQ"
+            )
+
+            publish_invalid_job!(message, :retry_exhausted)
+          else
+            publish_retry_job!(message, 1_000, :processing_failed)
+          end
 
         _ ->
           :ok
@@ -360,9 +367,23 @@ defmodule Prism.FanoutBroadway do
     %{
       "type" => "protobuf_batch",
       "bytes" => Base.encode64(payload_binary),
-      "partition_key" => metadata |> Map.get(:key, "") |> to_string(),
+      "partition_key" => effective_partition_key(metadata, payload_binary),
       "headers" => headers
     }
+  end
+
+  @doc false
+  def effective_partition_key(metadata, payload_binary) do
+    case metadata |> Map.get(:key, "") |> to_string() do
+      "" ->
+        case decode_raw_payload(payload_binary) do
+          {:ok, payload} -> payload.action_id || payload.batch_id || ""
+          {:error, _reason} -> ""
+        end
+
+      key ->
+        key
+    end
   end
 
   @doc false
@@ -391,7 +412,7 @@ defmodule Prism.FanoutBroadway do
     headers = normalized_headers(message.metadata)
     attempt = retry_attempt(headers) + 1
     not_before_ms = System.system_time(:millisecond) + max(delay_ms, 0)
-    partition_key = message.metadata |> Map.get(:key, "") |> to_string()
+    partition_key = effective_partition_key(message.metadata, payload_binary)
 
     headers =
       headers
