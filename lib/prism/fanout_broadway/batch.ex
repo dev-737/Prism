@@ -360,7 +360,8 @@ defmodule Prism.FanoutBroadway.Batch do
       }
 
       payload_map =
-        if parent_message_id and (include_parent_message_id or not is_nil(polarizer_action_id)) do
+        if is_binary(parent_message_id) and parent_message_id != "" and
+             (include_parent_message_id or not is_nil(polarizer_action_id)) do
           Map.put(payload_map, :parent_message_id, parent_message_id)
         else
           payload_map

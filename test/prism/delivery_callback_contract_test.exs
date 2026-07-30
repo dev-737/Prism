@@ -35,6 +35,8 @@ defmodule Prism.DeliveryCallbackContractTest do
     previous_pid = Application.get_env(:prism, :capture_transport_test_pid)
     previous_result = Application.get_env(:prism, :capture_transport_result)
     previous_handoff_base = Application.get_env(:prism, :prism_handoff_retry_base_ms)
+    previous_include_parent = Application.get_env(:prism, :callback_include_parent_message_id)
+    previous_preflight = Application.get_env(:prism, :preflight_batching_enabled)
 
     Application.put_env(
       :prism,
@@ -50,6 +52,8 @@ defmodule Prism.DeliveryCallbackContractTest do
       restore_env(:capture_transport_test_pid, previous_pid)
       restore_env(:capture_transport_result, previous_result)
       restore_env(:prism_handoff_retry_base_ms, previous_handoff_base)
+      restore_env(:callback_include_parent_message_id, previous_include_parent)
+      restore_env(:preflight_batching_enabled, previous_preflight)
     end)
 
     :ok
@@ -107,6 +111,31 @@ defmodule Prism.DeliveryCallbackContractTest do
     assert {:ok, callback} = PrismDeliveryCallback.decode(callback_payload)
     assert callback.action_id == @action_id
     assert callback.message_id == "message-1"
+  end
+
+  test "batch callback accepts a Discord snowflake as parent-message identity" do
+    Application.put_env(:prism, :callback_include_parent_message_id, true)
+    Application.put_env(:prism, :preflight_batching_enabled, false)
+    parent_message_id = "1532370911045353512"
+    now = System.system_time(:millisecond)
+
+    assert :ok =
+             Prism.FanoutBroadway.Batch.process_batch(
+               "execute",
+               "batch-snowflake",
+               %{},
+               [],
+               now,
+               now,
+               parent_message_id,
+               %{},
+               nil,
+               0
+             )
+
+    assert_receive {:published, "events.bus", summary_payload, _maxlen, _headers}
+    summary = Jason.decode!(summary_payload)
+    assert summary["parent_message_id"] == parent_message_id
   end
 
   test "authoritative callback failure is returned after bounded broker retries" do
