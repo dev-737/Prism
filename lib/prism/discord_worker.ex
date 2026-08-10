@@ -367,7 +367,10 @@ defmodule Prism.DiscordWorker do
     source_message_id =
       payload["source_message_id"] || payload["parent_msg_id"] || payload["batch_id"]
 
-    if source_message_id && Prism.CancelChecker.cancelled?(source_message_id) do
+    # Deletes are exempt from the cancel gate: the flag marks a source message as
+    # gone, which is precisely when its copies still need removing.
+    if payload["action"] != "delete" && source_message_id &&
+         Prism.CancelChecker.cancelled?(source_message_id) do
       Logger.info("RetryBroadway: skipping cancelled retry for #{source_message_id}")
     else
       action = payload["action"]

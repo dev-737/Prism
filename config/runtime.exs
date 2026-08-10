@@ -137,8 +137,10 @@ if config_env() != :test do
     prism_jobs_dlq_topic: env!("PRISM_JOBS_DLQ_TOPIC", :string, "#{stream_jobs}.dlq"),
     prism_jobs_retry_topic: env!("PRISM_JOBS_RETRY_TOPIC", :string, "#{stream_jobs}.retry"),
     prism_handoff_retry_base_ms: env!("PRISM_HANDOFF_RETRY_BASE_MS", :integer, 100),
-    # Congestion control (Cubic + 4xx safety budget)
-    congestion_control_enabled: env!("PRISM_CONGESTION_CONTROL_ENABLED", :boolean, false),
+    # Congestion control (Cubic + 4xx safety budget). The 4xx budget is the primary
+    # protection against Cloudflare IP bans, so it defaults on — shipping it disabled
+    # left nothing throttling a 4xx cascade. Set the env var to false to opt out.
+    congestion_control_enabled: env!("PRISM_CONGESTION_CONTROL_ENABLED", :boolean, true),
     cwnd_initial: env!("PRISM_CWND_INITIAL", :integer, 100),
     cwnd_min: env!("PRISM_CWND_MIN", :integer, 10),
     cwnd_max: env!("PRISM_CWND_MAX", :integer, 2000),

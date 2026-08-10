@@ -240,7 +240,11 @@ defmodule Prism.FanoutBroadway do
 
         hub_id = payload.hub_id
 
-        if parent_message_id != nil and parent_message_id != "" and
+        # The cancel flag means "the source message is gone, stop delivering it".
+        # A delete batch is how those copies get removed, so it must never be
+        # gated by it — the producer sets the flag on the same message_id right
+        # after enqueueing the delete, which would cancel every delete.
+        if action != "delete" and parent_message_id != nil and parent_message_id != "" and
              Prism.CancelChecker.cancelled?(parent_message_id) do
           Logger.info(
             "FanoutBroadway: skipping cancelled batch batch_id=#{batch_id} message_id=#{parent_message_id}"
