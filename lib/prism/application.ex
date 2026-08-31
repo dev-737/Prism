@@ -66,7 +66,7 @@ defmodule Prism.Application do
                [
                  Prism.EventBus.Config.kafka_brokers(),
                  :kafka_client,
-                 [extra_sock_opts: [keepalive: true]]
+                 Prism.EventBus.Config.kafka_brod_client_config()
                ]}
           }
         ]

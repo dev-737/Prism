@@ -28,9 +28,7 @@ defmodule Prism.FanoutBroadway do
               topics: [stream_key, Prism.EventBus.Config.prism_jobs_retry_topic()],
               receive_interval: receive_interval,
               offset_commit_on_ack: true,
-              client_config: [
-                extra_sock_opts: [keepalive: true]
-              ],
+              client_config: Prism.EventBus.Config.kafka_client_config(),
               group_config: [
                 session_timeout_seconds: 30,
                 rebalance_timeout_seconds: 30

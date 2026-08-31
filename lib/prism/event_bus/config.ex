@@ -81,4 +81,10 @@ defmodule Prism.EventBus.Config do
 
   @doc "Kafka brokers list for brod"
   def kafka_brokers, do: Application.get_env(:prism, :kafka_brokers, [{"localhost", 9092}])
+
+  @doc "TLS/SASL and topic-creation settings for Kafka clients"
+  def kafka_client_config, do: Application.get_env(:prism, :kafka_client_config, [])
+
+  @doc "Full brod client settings, including the no-auto-create guard"
+  def kafka_brod_client_config, do: Application.get_env(:prism, :kafka_brod_client_config, [])
 end

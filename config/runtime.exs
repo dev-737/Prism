@@ -25,32 +25,39 @@ stream_jobs = env!("PRISM_STREAM_JOBS", :string, "prism.stream.jobs")
 config :logger, level: log_level
 
 if config_env() != :test do
-  redis_opts = [
-    host: env!("REDIS_HOST", :string, "localhost"),
-    port: env!("REDIS_PORT", :integer, 6379),
-    database: env!("REDIS_DB", :integer, 0),
-    socket_opts: [
-      {:keepalive, true},
-      {:nodelay, true},
-      # Linux TCP keepalive tuning: idle 10s, interval 5s, 3 probes
-      # Prevents Cilium conntrack GC from evicting idle Redis connections.
-      {:raw, 6, 4, <<10::32-native>>},
-      {:raw, 6, 5, <<5::32-native>>},
-      {:raw, 6, 6, <<3::32-native>>}
-    ]
+  redis_socket_opts = [
+    {:keepalive, true},
+    {:nodelay, true},
+    # Linux TCP keepalive tuning: idle 10s, interval 5s, 3 probes
+    # Prevents Cilium conntrack GC from evicting idle Redis connections.
+    {:raw, 6, 4, <<10::32-native>>},
+    {:raw, 6, 5, <<5::32-native>>},
+    {:raw, 6, 6, <<3::32-native>>}
   ]
 
   redis_opts =
-    if redis_password = env!("REDIS_PASSWORD", :string, nil) do
-      Keyword.put(redis_opts, :password, redis_password)
-    else
-      redis_opts
+    case System.get_env("REDIS_URI") do
+      uri when is_binary(uri) and uri != "" ->
+        uri |> Redix.URI.to_start_options() |> Keyword.put(:socket_opts, redis_socket_opts)
+
+      _ when config_env() == :prod ->
+        raise "REDIS_URI is required in production"
+
+      _ ->
+        [
+          host: env!("REDIS_HOST", :string, "localhost"),
+          port: env!("REDIS_PORT", :integer, 6379),
+          database: env!("REDIS_DB", :integer, 0),
+          socket_opts: redis_socket_opts
+        ]
     end
 
   config :prism, redis_opts: redis_opts
 end
 
 if config_env() != :test do
+  kafka_config = Prism.KafkaConfig.from_env!()
+
   health_host =
     case env!("PRISM_HEALTH_HOST", :string, "0.0.0.0")
          |> String.to_charlist()
@@ -156,16 +163,9 @@ if config_env() != :test do
     cwnd_4xx_critical_pct: env!("PRISM_CWND_4XX_CRITICAL_PCT", :float, 0.8),
     cwnd_4xx_prune_interval_ms: env!("PRISM_CWND_4XX_PRUNE_INTERVAL_MS", :integer, 10000),
     schema_registry_url: env!("SCHEMA_REGISTRY_URL", :string, "http://localhost:8081"),
-    kafka_brokers:
-      env!("KAFKA_BROKERS", :string, "localhost:9092")
-      |> String.split(",")
-      |> Enum.map(&String.trim/1)
-      |> Enum.map(fn broker ->
-        case String.split(broker, ":") do
-          [host, port] -> {host, String.to_integer(port)}
-          [host] -> {host, 9092}
-        end
-      end)
+    kafka_brokers: kafka_config.brokers,
+    kafka_client_config: kafka_config.client_config,
+    kafka_brod_client_config: kafka_config.brod_client_config
 
   event_bus_transport =
     case String.downcase(env!("EVENT_BUS_TRANSPORT", :string, "kafka")) do
